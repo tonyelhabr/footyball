@@ -1,41 +1,4 @@
 
-.get_dir_data <- function() {
-  'data'
-}
-
-.get_dir_output <- function() {
-  'output'
-}
-
-.to_coords <- function(data, dims) {
-  res <-
-    data %>%
-    mutate(
-      across(matches('x$'), ~{.x * dims[1]}),
-      # across(matches('y$'), ~{.x * dims[2]})
-      across(matches('y$'), ~{-1 * (.x * dims[2] - dims[2])})
-    )
-  res
-}
-
-# .to_coords_opta <- function(data, dims = .get_dims_opta()) {
-#   .to_coords(data, dims)
-# }
-# 
-# .to_coords_actual <- function(data, dims = .get_dims_actual()) {
-#   .to_coords(data, dims)
-# }
-
-# TODO: Make `.to_coords()` more robust by making it `.rescale_xy()`, which allows for non-zero starting point (i.e. don't rely on input data being on 0-1 scale).
-.rescale_xy <- function(data, rng_x = .gen_rng_actual('x'), rng_y = .get_rng_actual('y')) {
-  res <-
-    data %>%
-    mutate(
-      across(matches('x$'), ~.rescale(.x, c(0, 1), rng_x)),
-      across(matches('y$'), ~.rescale(-1 * .x, c(0, 1), rng_y))
-    )
-  res
-}
 
 .nan_to_na <- function(data, ..., .na = NA_real_) {
   res <-
@@ -49,7 +12,7 @@
   res
 }
 
-import_event_data <-
+import_events_metrica <-
   function(game_id,
            dir = .get_dir_data(),
            postprocess = FALSE,
@@ -99,7 +62,7 @@ import_event_data <-
   res
 }
 
-.add_velocity_cols <- 
+.add_velocity_cols_metrica <- 
   function(data, 
            max_speed = 12,
            smoothing = TRUE,
@@ -148,7 +111,7 @@ import_event_data <-
     res
   }
 
-import_tracking_data <-
+import_tracking_metrica <-
   function(game_id,
            side = .get_valid_sides(),
            dir = .get_dir_data(),
@@ -192,12 +155,12 @@ import_tracking_data <-
       mutate(team = !!side) %>% 
       arrange(player_id, frame) %>% 
       .to_coords(dims = dims) %>% 
-      .add_velocity_cols()
+      .add_velocity_cols_metrica()
     feather::write_feather(res, path = path_export)
     res
   }
 
-import_tracking_data_timed <- .time_it(import_tracking_data)
+import_tracking_metrica_timed <- .time_it(import_tracking_metrica)
 
 # TODO: Need to check how `pull_gk_numbers()` and  `pull_home_attack_direction()` are "needed".
 # `pull_home_attack_direction()` is used in tutorial 4, but not by any function.
@@ -219,14 +182,15 @@ pull_gk_ids <- memoise::memoise({
   }
 })
 
-pull_home_attack_direction <- function(tracking, gk_numbers = pull_gk_numbers(tracking)) {
-  res <-
-    tracking %>% 
-    filter(side == 'home' & player == gk_numbers['home']) %>% 
-    slice(1) %>% 
-    pull(x) %>% 
-    sign() %>% 
-    {. * -1}
-  res
-}
+#' @note Not used for anything.
+# pull_home_attack_direction <- function(tracking, gk_numbers = pull_gk_numbers(tracking)) {
+#   res <-
+#     tracking %>% 
+#     filter(side == 'home' & player == gk_numbers['home']) %>% 
+#     slice(1) %>% 
+#     pull(x) %>% 
+#     sign() %>% 
+#     {. * -1}
+#   res
+# }
 

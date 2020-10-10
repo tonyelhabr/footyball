@@ -12,11 +12,17 @@
   c('x', 'y')
 }
 
-.validate_coord <- function(coord) {
-  match.arg(coord)
+.validate_coord <- function(x = .get_valid_coords()) {
+  match.arg(x)
 }
 
-.get_rng_actual <- function(coord = .get_valid_coords()) {
+.get_rng_yards <- function(coord = .get_valid_coords()) {
+  .validate_coord(coord)
+  switch(coord, x = c(0, 120), y = c(0, 80))
+}
+
+
+.get_rng_m <- function(coord = .get_valid_coords()) {
   .validate_coord(coord)
   switch(coord, x = c(0, 105), y = c(0, 68))
 }
@@ -55,12 +61,70 @@
   params
 }
 
+.get_dir_data <- function() {
+  'data'
+}
+
+.get_dir_output <- function() {
+  'output'
+}
+
+.get_dir_plots <- function() {
+  'output/figs'
+}
+
+.to_coords <- function(data, dims) {
+  res <-
+    data %>%
+    mutate(
+      across(matches('x$'), ~{.x * dims[1]}),
+      # across(matches('y$'), ~{.x * dims[2]})
+      across(matches('y$'), ~{-1 * (.x * dims[2] - dims[2])})
+    )
+  res
+}
+
+# .to_coords_opta <- function(data, dims = .get_dims_opta()) {
+#   .to_coords(data, dims)
+# }
+# 
+# .to_coords_actual <- function(data, dims = .get_dims_actual()) {
+#   .to_coords(data, dims)
+# }
+
+
+# TODO: Make `.to_coords()` more robust by making it `.rescale_xy_cols()`, which allows for non-zero starting point (i.e. don't rely on input data being on 0-1 scale).
+.rescale_xy_cols <-
+  function(.data,
+           rng_x_from = c(0, 1),
+           rng_y_from = rng_x_from,
+           rng_x_to = .get_rng_m('x'),
+           rng_y_to = .get_rng_m('y'),
+           rgx_x = 'x$',
+           rgx_y = 'y$',
+           flip_x = FALSE,
+           flip_y = TRUE) {
+    multiplier_x <- ifelse(flip_x, -1, 1)
+    multiplier_y <- ifelse(flip_y, -1, 1)
+    res <-
+      .data %>%
+      mutate(across(
+        matches(rgx_x),
+        ~ .rescale(multiplier_x * .x, rng_x_from, rng_x_to)
+      ),
+      across(
+        matches(rgx_y),
+        ~ .rescale(multiplier_y * .x, rng_y_from, rng_y_to)
+      ))
+    res
+  }
+
 save_plot <-
   function(viz,
            file = deparse(substitute(viz)),
            ext = 'png',
            # dir = here::here('output'),
-           dir = here::here('output', 'figs'),
+           dir = .get_dir_plots(),
            path = fs::path(dir, sprintf('%s.%s', file, ext)),
            height = 8,
            scaler = 105 / 68,

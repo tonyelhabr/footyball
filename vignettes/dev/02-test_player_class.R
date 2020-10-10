@@ -1,6 +1,6 @@
 
 game_id <- 2
-events <- import_event_data(game_id = game_id, postprocess = TRUE)
+events <- import_events_metrica(game_id = game_id, postprocess = TRUE)
 
 .event_id <- 823L
 # .start_frame <- 52941L

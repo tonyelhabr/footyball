@@ -2,9 +2,9 @@
 library(tidyverse)
 game_id <- 2
 
-events <- import_event_data(game_id = game_id, postprocess = TRUE)
-tracking_home <- import_tracking_data_timed(game_id = game_id, side = 'home', overwrite = F)
-tracking_away <- import_tracking_data_timed(game_id = game_id, side = 'away', overwrite = F)
+events <- import_events_metrica(game_id = game_id, postprocess = TRUE)
+tracking_home <- import_tracking_metrica_timed(game_id = game_id, side = 'home', overwrite = F)
+tracking_away <- import_tracking_metrica_timed(game_id = game_id, side = 'away', overwrite = F)
 tracking <- bind_rows(tracking_home, tracking_away)
 tracking
 
