@@ -1,77 +1,55 @@
 
-# retrieve data ----
-# path_data <- fs::path(.get_dir_data(), 'events_wc2018_clean.rds')
-# if(!fs::file_exists(path_data)) {
-#   comps <- StatsBombR::FreeCompetitions()
-#   
-#   # get all free games data from Men World Cup Rusia 2018 (id = 43)
-#   matches <-
-#     comps %>% 
-#     filter(competition_id == 43) %>%
-#     StatsBombR::FreeMatches() %>%
-#     arrange(match_date)
-#   
-#   events <- matches %>% StatsBombR::StatsBombFreeEvents()
-#   events_clean <- events %>% StatsBombR::allclean()
-#   write_rds(events_clean, 'data/events_wc2018_clean.rds')
-# }
-
-events <- retrieve_sb_events_timed(competition_id = 43)
-events
-
-# py ----
-players_wide_py <- 'data/unraveled_py.csv' %>% read_csv()
-players_long_py <-
-  players_wide_py %>% 
-  mutate(id = row_number()) %>% 
-  pivot_longer(-id, names_to = 'name', values_to = 'n') %>% 
-  mutate(across(name, ~as.integer(.x) + 1L))
-players_long_py
-players_long_py %>% arrange(desc(n))
-
-.player_id_filt <- 3509L
-events_py <- 'data/events_py.csv' %>% read_csv()
-events_py
-events_py %>% filter(index == 2694) %>% glimpse()
-events %>% filter(player.id == .player_id_filt) %>% select(id, index, location.x, location.y)
-events_py %>% filter(index == 12 & id == '513abcac-6a62-4855-8a2d-c0191c25cbed') %>% glimpse()
-events_py %>% filter(id == '1c16e4cb-2364-4595-b489-dfaf0adb88a5')
-
-events %>% filter(row_number() == 27221L) %>% select(index, player.id, player.name)
-events %>% filter(row_number() == 2964) %>% glimpse()
-# r ----
+# functions ----
 rng_x_yards <- .get_rng_yards('x')
 rng_y_yards <- .get_rng_yards('y')
 rng_x_m <- .get_rng_m('x')
 rng_y_m <- .get_rng_m('y')
-width_yards <- 4
+# width_yards <- 4
+n_bin <- 30
 
-bin <- function(x, width = width_yards) {
-  x %>% 
-    ggplot2::cut_interval(length = width) %>% 
-    # str_remove_all('^[\\(|\\[]|,.*$') %>%
-    str_remove_all('(^.*\\,)|[\\)\\]]$') %>%
-    as.numeric()
-}
+# seq_coord_yards <- function(coord = .get_valid_coords(), w = width_yards, truncate = TRUE) {
+#   .validate_coord(coord)
+#   rng <- .get_rng_yards(coord)
+#   rng2 <- ifelse(truncate, rng[2] - w, rng[2])
+#   seq.int(rng[1], rng2, by = w)
+# }
 
-seq_coord_yards <- function(coord = .get_valid_coords(), w = width_yards) {
+seq_coord_yards <- function(coord = .get_valid_coords(), n = n_bin) {
   .validate_coord(coord)
   rng <- .get_rng_yards(coord)
-  seq.int(rng[1], rng[2] - w, by = w)
+  res <- seq(rng[1], rng[2], length.out = n)
+  res
 }
+
+seq_x_yards <- seq_coord_yards('x', n = 30)
+seq_y_yards <- seq_coord_yards('y', n = 30)
+.bin <- function(x, breaks, side = c('left', 'right')) {
+  side <- match.arg(side)
+  rgx <- swtich(side, left = '^[\\(|\\[]|,.*$', right = '(^.*\\,)|[\\)\\]]$')
+  x %>% 
+    # ggplot2::cut_interval(length = width) %>% 
+    cut(breaks = breaks) %>% 
+    str_remove_all(rgx) %>%
+    as.numeric()
+}
+bin_x_yards <- partial(.bin, breaks = seq_coord_yards('x', truncate = FALSE), ... = )
+bin_y_yards <- partial(.bin, breaks = seq_coord_yards('y', truncate = FALSE), ... = )
 
 grid_xy_yards <-
   crossing(
-    x = seq_coord_yards('x'),
-    y = seq_coord_yards('y')
+    x = seq_coord_yards('x', truncate = TRUE),
+    y = seq_coord_yards('y', truncate = TRUE)
   ) %>% 
-  arrange(y, x) %>% 
+  # arrange(y, x) %>% 
+  arrange(x, y) %>% 
   # mutate(idx = row_number(x + rng_x_yards[2] + y))
   mutate(idx = row_number())
 grid_xy_yards
 
 # Make sure this is in columnar order.
-grid_xy_yards %>% pivot_wider(names_from = x, values_from = idx) %>% select(-y)
+grid_xy_yards %>% 
+  pivot_wider(names_from = x, values_from = idx) %>% 
+  select(-y)
 
 rescale_xy_cols_yards_to_m <- function(.data) {
   .rescale_xy_cols(
@@ -90,17 +68,79 @@ rescale_xy_cols_yards_to_m <- function(.data) {
 grid_xy_m <- grid_xy_yards %>% rescale_xy_cols_yards_to_m()
 grid_xy_m
 
+# retrieve data ----
+# path_data <- fs::path(.get_dir_data(), 'events_wc2018_clean.rds')
+# if(!fs::file_exists(path_data)) {
+#   comps <- StatsBombR::FreeCompetitions()
+#   
+#   # get all free games data from Men World Cup Rusia 2018 (id = 43)
+#   matches <-
+#     comps %>% 
+#     filter(competition_id == 43) %>%
+#     StatsBombR::FreeMatches() %>%
+#     arrange(match_date)
+#   
+#   events <- matches %>% StatsBombR::StatsBombFreeEvents()
+#   events_clean <- events %>% StatsBombR::allclean()
+#   write_rds(events_clean, 'data/events_wc2018_clean.rds')
+# }
+
+events <- retrieve_sb_events_timed(competition_id = 43, overwrite = FALSE)
+events
+
+# for debugging
+.player_id_filt <- 3509L # key at index 328 in python
+.player_id_filt_py <- 328L
+
+# py ----
+players_wide_py <- 'data/unraveled_py.csv' %>% read_csv()
+players_long_py <-
+  players_wide_py %>% 
+  mutate(id = row_number()) %>% 
+  pivot_longer(-id, names_to = 'idx', values_to = 'n') %>% 
+  mutate(across(idx, ~as.integer(.x) + 1L))
+players_long_py
+# players_long_py %>% arrange(desc(n))
+players1_py <- players_long_py %>% filter(id == .player_id_filt_py)
+players1_py
+
+events_py <- 'data/events_py.csv' %>% read_csv()
+events_filt <- events %>% filter(player.id == .player_id_filt)
+events_py_filt <- 
+  events_py %>% 
+  select(id, player_py = player, location_py = location) %>%
+  inner_join(
+    events_filt %>% 
+      select(
+        id,
+        player_id = player.id,
+        x = location.x,
+        y = location.y
+      )
+  )
+events_py_filt
+
+# cut(x = 2, breaks = c(0, 4, 8))
+# cut(2, seq_x_yards)
+# ggplot2::cut_width(2, n = 20, width = 4)
+# ggplot2::cut_interval(2, length = 4, n = 3, breaks = c(0, 4, 8))
+# ggplot2::cut_interval(4, length = 4, breaks = c(0, 4, 8))
+
+# r ----
 events_proc <-
   events %>% 
   # head(100) %>% 
   select(player_id = player.id, player_name = player.name, x = location.x, y = location.y) %>% 
   filter(!is.na(x))
 
-
 grid_xy_yards_expand <-
   grid_xy_yards %>% 
-  mutate(dummy = 1L) %>% 
-  full_join(events_proc %>% distinct(player_id, player_name) %>% mutate(dummy = 1L)) %>% 
+  mutate(dummy = 0) %>% 
+  full_join(
+    events_proc %>% 
+      distinct(player_id, player_name) %>% 
+      mutate(dummy = 0)
+  ) %>% 
   select(-dummy)
 grid_xy_yards_expand
 
@@ -113,20 +153,24 @@ players <-
   #   by = c('x' = 'x', 'y' = 'y', 'x' = 'x_lead1', 'y' = 'y_lead1'),
   #   match_fun = c(`>=`, `>=`, `<`, `<`)
   # ) %>% 
-  mutate(across(c(x, y), bin)) %>%
+  mutate(across(x, bin_x_yards), across(y, bin_y_yards)) %>%
+  group_by(player_id, player_name, x, y) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
   right_join(grid_xy_yards_expand) %>% 
+  replace_na(list(n = 0L)) %>% 
   # Don't convert to meters yet! Compare to python dimensions and counts
   # rescale_xy_cols_yards_to_m() %>% 
   arrange(player_id, idx, x, y)
 players
 
-events_proc %>% mutate(idx = row_number()) %>% filter(player_id == .player_id_filt)
+players1 <- players %>% filter(player_id == .player_id_filt)
+players1
+# players1 %>% filter(n > 1L) %>% summarize(across(n, sum)) # checks out
+players1_py %>% inner_join(grid_xy_yards) %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
+players1 %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
 
-players_n <- players %>% count(player_id, idx)
-players_n %>% arrange(desc(n))
-players_long_py %>% arrange(desc(n))
-players_n1 <- players_n %>% filter(player_id == .player_id_filt)
-players_n1
+players %>% filter(player_id == .player_id_filt) %>% arrange(x + y)
 
 players_long_py %>% distinct(id)
 xy_n <- players %>% count(idx, x, y)
@@ -135,7 +179,7 @@ xy_n <- players %>% count(idx, x, y)
 # players %>% count(x, y) %>% ggplot() + aes(x = x, y = y) + geom_point(aes(size = n))
 
 players_decomp <-
-  players_n %>% 
+  players %>% 
   widyr::widely_svd(
     item = idx,
     feature = player_id,
