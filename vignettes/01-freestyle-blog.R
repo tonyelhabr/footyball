@@ -133,7 +133,7 @@ pts <- function(x) {
 # tti and p_intercept ----
 start_frame <- events_filt[['start_frame']]
 tracking_filt <- tracking_start
-params <- .get_default_pc_params()
+params <- .get_default_pc_params_spearman()
 
 ball_x <- tracking_filt[1, ][['ball_x']]
 ball_y <- tracking_filt[1, ][['ball_y']]

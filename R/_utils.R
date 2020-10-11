@@ -1,4 +1,8 @@
 
+.get_dims_sb <- function() {
+  c(120, 80)
+}
+
 .get_dims_opta <- function() {
   c(100, 100)
 }
@@ -16,18 +20,19 @@
   match.arg(x)
 }
 
+#' @note StatsBomb
 .get_rng_yards <- function(coord = .get_valid_coords()) {
   .validate_coord(coord)
   switch(coord, x = c(0, 120), y = c(0, 80))
 }
 
-
+#' @note Metrica
 .get_rng_m <- function(coord = .get_valid_coords()) {
   .validate_coord(coord)
   switch(coord, x = c(0, 105), y = c(0, 68))
 }
 
-.rescale <- function(x, rng1, rng2) {
+.rescale_vec <- function(x, rng1, rng2) {
   rng2[1] + ((x - rng1[1]) * (rng2[2] - rng2[1])) / (rng1[2] - rng1[1])
 }
 
@@ -39,7 +44,7 @@
   match.arg(x)
 }
 
-.get_default_pc_params <- function(time_to_control_veto = 3) {
+.get_default_pc_params_spearman <- function(time_to_control_veto = 3) {
   params <-
     list(
       max_player_accel = 7,
@@ -93,29 +98,55 @@
 # }
 
 
-# TODO: Make `.to_coords()` more robust by making it `.rescale_xy_cols()`, which allows for non-zero starting point (i.e. don't rely on input data being on 0-1 scale).
+# TODO: Change usage of `.to_coords()` to this function.
+# Split this function into a function that acts only on a single coord.
 .rescale_xy_cols <-
   function(.data,
            rng_x_from = c(0, 1),
            rng_y_from = rng_x_from,
            rng_x_to = .get_rng_m('x'),
            rng_y_to = .get_rng_m('y'),
-           rgx_x = 'x$',
-           rgx_y = 'y$',
-           flip_x = FALSE,
-           flip_y = TRUE) {
-    multiplier_x <- ifelse(flip_x, -1, 1)
-    multiplier_y <- ifelse(flip_y, -1, 1)
+           rgx_x = '^x$',
+           rgx_y = '^y$',
+           scaler_x = 1,
+           scaler_y = 1) {
+    # multiplier_x <- ifelse(flip_x, -1, 1)
+    # multiplier_y <- ifelse(flip_y, -1, 1)
     res <-
       .data %>%
-      mutate(across(
+      mutate(
+        across(
         matches(rgx_x),
-        ~ .rescale(multiplier_x * .x, rng_x_from, rng_x_to)
+        ~ .rescale_vec(scaler_x * .x, rng_x_from, rng_x_to)
       ),
       across(
         matches(rgx_y),
-        ~ .rescale(multiplier_y * .x, rng_y_from, rng_y_to)
-      ))
+        ~ .rescale_vec(scaler_y * .x, rng_y_from, rng_y_to)
+      )
+      )
+    res
+  }
+
+# TODO: Use this function.
+.rescale_coord_col <-
+  function(.data,
+           coord = .get_valid_coords(),
+           col = coord,
+           rng_from = NULL,
+           rng_to = .get_rng_m(coord),
+           scaler = 1) {
+    col_sym <- col %>% sym()
+    if(is.null(rng_from)) {
+      rng_from <- range(.data[[col]])
+    }
+    res <-
+      .data %>%
+      mutate(
+        across(
+          !!col_sym,
+          ~ .rescale_vec(scaler_x * .x, rng_from, rng_to)
+        )
+      )
     res
   }
 

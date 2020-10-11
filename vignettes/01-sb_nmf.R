@@ -53,27 +53,10 @@ grid_xy_yards <-
   mutate(idx = row_number())
 grid_xy_yards
 
-# Make sure this is in columnar order.
-grid_xy_yards %>% 
-  mutate(across(c(x, y), round)) %>% 
-  pivot_wider(names_from = x, values_from = idx)
-
-rescale_xy_cols_yards_to_m <- function(.data) {
-  .rescale_xy_cols(
-    .data,
-    rng_x_from = rng_x_yards,
-    rng_y_from = rng_y_yards,
-    rng_x_to = rng_x_m, 
-    rng_y_to = rng_y_m, 
-    rgx_x = '^x$',
-    rgx_y = '^y$',
-    flip_x = FALSE, 
-    flip_y = FALSE
-  ) 
-}
-
-grid_xy_m <- grid_xy_yards %>% rescale_xy_cols_yards_to_m()
-grid_xy_m
+# # Make sure this is in columnar order.
+# grid_xy_yards %>% 
+#   mutate(across(c(x, y), round)) %>% 
+#   pivot_wider(names_from = x, values_from = idx)
 
 # retrieve data ----
 events <- retrieve_sb_events_timed(competition_id = 43, overwrite = FALSE)
@@ -179,25 +162,23 @@ players %>% filter(idx %>% is.na()) # Should have no rows.
 players1 <- players %>% filter(player_id == .player_id_filt)
 players1
 # players1 %>% filter(n > 1L) %>% summarize(across(n, sum)) # checks out
-players1_py %>% inner_join(grid_xy_yards) %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
-players1 %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
-decomp <-
-  players %>% 
-  widyr::widely_svd(
-    item = idx,
-    feature = player_id,
-    value = n,
-    nv = 9
-  ) %>% 
-  inner_join(grid_xy_m)
-decomp
+# players1_py %>% inner_join(grid_xy_yards) %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
+# players1 %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
+# decomp <-
+#   players %>% 
+#   widyr::widely_svd(
+#     item = idx,
+#     feature = player_id,
+#     value = n,
+#     nv = 9
+#   ) %>% 
+#   inner_join(grid_xy_m)
+# decomp
 
 sklearn::import_sklearn()
-library(sklearn)
-decomp <- sk_decomp()
-nmf <- decomp$NMF
-model <- decomp$NMF(n_components = 30L, init = 'random', random_state = 0L)
-model
+sklearn <- reticulate::import('sklearn')
+model <- sklearn$decomposition$NMF(n_components = 30L, init = 'random', random_state = 0L)
+
 players_mat <-
   players %>% 
   select(player_id, idx, n) %>% 
@@ -205,45 +186,120 @@ players_mat <-
   select(-player_id) %>% 
   as.matrix()
 
-W <- model$fit_transform(players_mat)
-model$components_ %>% as_tibble()
-W %>% as_tibble()
+model$fit_transform(players_mat)
+w <- NMF::nmf(NMF::rmatrix(players_mat), rank = 30, seed = 0, method = 'Frobenius', .options='v3')
 
-decomp_w <- 
+grid_xy_m <- 
+  grid_xy_yards %>%
+  .rescale_xy_cols(
+    rng_x_from = rng_x_m,
+    rng_y_from = rng_y_m,
+    rng_x_to = rng_x_m, 
+    rng_y_to = rng_y_m
+  )
+grid_xy_m
+
+grid_xy_rev_m <- 
+  grid_xy_yards %>%
+  .rescale_xy_cols(
+    rng_x_from = rng_x_yards,
+    rng_y_from = rng_y_yards,
+    rng_x_to = rng_x_m, 
+    rng_y_to = rev(rng_y_m)
+  )
+grid_xy_rev_m
+
+.tidy_comp_mat <- function(.data, smooth = FALSE, ...) {
+  if(smooth) {
+    .data <-
+      .data %>% 
+      spatstat::as.im() %>% 
+      spatstat::blur(...) %>% 
+      # NOTE: Could use `spatstat::as.data.frame.im()`, but it converts directly to x,y,value.
+      pluck('v')
+  }
+  res <-
+    .data %>% 
+    as_tibble() %>% 
+    mutate(dimension = row_number()) %>% 
+    pivot_longer(-dimension, names_to = 'idx', values_to = 'value') %>% 
+    mutate(across(idx, ~str_remove(.x, '^V') %>% as.integer())) %>% 
+    left_join(grid_xy_rev_m) %>% 
+    group_by(dimension) %>% 
+    mutate(frac = (value - min(value)) / (max(value) - min(value))) %>% 
+    ungroup()
+  res
+}
+
+decomp <- w@fit@H %>% .tidy_comp_mat()
+decomp_py <- model$components_ %>% .tidy_comp_mat()
+decomp_smooth_py <- model$components_ %>% .tidy_comp_mat(smooth = TRUE, sigma = 1.5)
+
+smoothen_dimension <- function(.data, ...) {
+  mat <-
+    .data %>% 
+    select(x, y, value) %>% 
+    pivot_wider(names_from = x, values_from = value) %>% 
+    select(-y) %>% 
+    as.matrix()
+  mat_smoothed <-
+    mat %>% 
+    spatstat::as.im() %>% 
+    spatstat::blur(...) %>% 
+    # NOTE: Could use `spatstat::as.data.frame.im()`, but it converts directly to x,y,value.
+    pluck('v')
+  
+  res <-
+    mat_smoothed %>% 
+    as_tibble() %>% 
+    mutate(y = row_number()) %>% 
+    pivot_longer(-y, names_to = 'x', values_to = 'value') %>% 
+    mutate(across(x, ~str_remove(.x, '^V') %>% as.integer())) %>% 
+    arrange(x, y) %>% 
+    mutate(idx = row_number()) %>% 
+    select(-x, -y) %>% 
+    inner_join(grid_xy_rev_m) %>% 
+    mutate(frac = (value - min(value)) / (max(value) - min(value))) %>% 
+    ungroup()
+  res
+}
+
+decomp_smooth_py <-
   model$components_ %>% 
   as_tibble() %>% 
   mutate(dimension = row_number()) %>% 
   pivot_longer(-dimension, names_to = 'idx', values_to = 'value') %>% 
   mutate(across(idx, ~str_remove(.x, '^V') %>% as.integer())) %>% 
-  inner_join(grid_xy_m) %>% 
-  group_by(dimension) %>% 
-  mutate(frac = (value - min(value)) / (max(value) - min(value))) %>% 
-  ungroup()
-decomp_w
+  inner_join(
+    grid_xy_yards %>% 
+      mutate(across(c(x, y), dense_rank))
+  ) %>% 
+  nest(data = -c(dimension)) %>% 
+  # `sigma` passed into `...` of `smoothen_dimension()`. (`data` passed as first argument.)
+  mutate(data = map(data, smoothen_dimension, sigma = 1.5)) %>% 
+  unnest(data)
+decomp_smooth_py
+
 
 viz <-
-  decomp_w %>% 
+  decomp_smooth_py %>% 
+  # decomp_py %>% 
+  # res_init %>% 
   filter(dimension <= 9) %>% 
   ggplot() +
   aes(x = x, y = y) +
   theme_void() +
   .gg_pitch() +
-  # geom_raster(
-  #   aes(fill = frac),
-  #   interpolate = TRUE,
-  #   hjust = 0.5,
-  #   vjust = 0.5,
-  #   alpha = 0.5
-  # ) +
+  # geom_tile(aes(fill = value))
+  facet_wrap(~dimension, ncol = 3) +
   geom_contour_filled(
     # aes(fill = frac),
-    aes(z = sqrt(frac)),
-    alpha = 0.5,
+    aes(z = frac),
     # contour_var = 'ndensity',
     # breaks = seq(0, 1.0, length.out = 11)
-    binwidth = 0.1, bins = 5
+    # binwidth = 0.1,
+    alpha = 0.7
   ) +
   # geom_tile(aes(fill = frac), alpha = 0.5) +
-  facet_wrap(~dimension, ncol = 3) +
   scale_fill_viridis_d(direction = 1)
 viz

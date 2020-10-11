@@ -71,7 +71,7 @@ player <-
            frame,
            events,
            tracking,
-           params = .get_default_pc_params(),
+           params = .get_default_pc_params_spearman(),
            gk_ids = pull_gk_ids(tracking)) {
     
     
@@ -271,7 +271,7 @@ calculate_pc_at_target <-
            ball_y,
            target_x = ball_x,
            target_y = ball_y,
-           params = .get_default_pc_params()) {
+           params = .get_default_pc_params_spearman()) {
     
     ball_dist <- .norm(target_x, ball_x, target_y, ball_y)
     ball_time <- ball_dist / params[['average_ball_speed']]
@@ -416,7 +416,7 @@ do_calculate_pc_for_event <-
   function(tracking,
            events,
            event_id,
-           params = .get_default_pc_params(),
+           params = .get_default_pc_params_spearman(),
            epv_grid = import_epv_grid()) {
     
     events_filt <- events %>% filter(event_id == !!event_id)
@@ -616,7 +616,7 @@ do_compute_xt_added <- function(..., epv_grid = import_xt_grid()) {
   do_compute_epv_added(..., epv_grid = epv_grid)
 }
 
-do_compute_eepv_added <- function(tracking, events, event_id, epv_grid = import_epv_grid(), params = .get_default_pc_params(), ...) {
+do_compute_eepv_added <- function(tracking, events, event_id, epv_grid = import_epv_grid(), params = .get_default_pc_params_spearman(), ...) {
 
   events_filt <- events %>% filter(event_id == !!event_id)
   start_frame <- events_filt[['start_frame']]

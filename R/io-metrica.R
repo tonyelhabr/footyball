@@ -1,15 +1,10 @@
 
-
 .nan_to_na <- function(data, ..., .na = NA_real_) {
-  res <-
-    data %>% 
-    mutate(across(..., ~if_else(is.nan(.x), .na, .x)))
-  res
+  .data %>% mutate(across(..., ~if_else(is.nan(.x), .na, .x)))
 }
 
-.to_single_player_direction <- function(data) {
-  res <- data %>% mutate(across(matches('^[x|y]$'), ~if_else(period == 2, -1 * .x, .x)))
-  res
+.to_single_player_direction <- function(.data) {
+  .data %>% mutate(across(matches('^[x|y]$'), ~if_else(period == 2, -1 * .x, .x)))
 }
 
 import_events_metrica <-
@@ -26,6 +21,7 @@ import_events_metrica <-
     res <- 
       res %>% 
       .to_coords(dims = dims) %>% 
+      # .rescale_xy_cols(scaler_y = -1) %>%
       .to_single_player_direction() %>% 
       .nan_to_na(matches('^(start|end)_[xy]$')) %>% 
       fill(start_x, start_y, .direction = 'downup') %>% 
@@ -63,7 +59,7 @@ import_events_metrica <-
 }
 
 .add_velocity_cols_metrica <- 
-  function(data, 
+  function(.data, 
            max_speed = 12,
            smoothing = TRUE,
            smoothing_filter = c('movavg', 'savgol'),
@@ -76,7 +72,7 @@ import_events_metrica <-
            .type = 's') {
     smoothing_filter <- match.arg(smoothing_filter)
     res <- 
-      data %>%
+      .data %>%
       # select(time, period, x := !!col_x_sym, y := !!col_y_sym) %>% 
       mutate(
         across(
@@ -155,6 +151,7 @@ import_tracking_metrica <-
       mutate(team = !!side) %>% 
       arrange(player_id, frame) %>% 
       .to_coords(dims = dims) %>% 
+      .rescale_xy_cols(scaler_y = -1) %>%
       .add_velocity_cols_metrica()
     feather::write_feather(res, path = path_export)
     res
