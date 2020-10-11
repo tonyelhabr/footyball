@@ -5,7 +5,7 @@ rng_y_yards <- .get_rng_yards('y')
 rng_x_m <- .get_rng_m('x')
 rng_y_m <- .get_rng_m('y')
 # width_yards <- 4
-n_bin <- 30
+# n_bin <- 30
 
 # seq_coord_yards <- function(coord = .get_valid_coords(), w = width_yards, truncate = TRUE) {
 #   .validate_coord(coord)
@@ -14,31 +14,38 @@ n_bin <- 30
 #   seq.int(rng[1], rng2, by = w)
 # }
 
-seq_coord_yards <- function(coord = .get_valid_coords(), n = n_bin) {
+seq_coord_yards <- function(coord = .get_valid_coords(), n = 10, truncate = FALSE) {
   .validate_coord(coord)
   rng <- .get_rng_yards(coord)
   res <- seq(rng[1], rng[2], length.out = n)
+  if(!truncate) {
+    return(res)
+  }
+  res <- res[1:length(res)-1]
   res
 }
 
-seq_x_yards <- seq_coord_yards('x', n = 30)
-seq_y_yards <- seq_coord_yards('y', n = 30)
+# seq_x_yards <- seq_coord_yards('x', n = 30)
+# seq_y_yards <- seq_coord_yards('y', n = 30)
 .bin <- function(x, breaks, side = c('left', 'right')) {
   side <- match.arg(side)
-  rgx <- swtich(side, left = '^[\\(|\\[]|,.*$', right = '(^.*\\,)|[\\)\\]]$')
+  rgx <- switch(side, left = '^[\\(|\\[]|,.*$', right = '(^.*\\,)|[\\)\\]]$')
   x %>% 
     # ggplot2::cut_interval(length = width) %>% 
-    cut(breaks = breaks) %>% 
+    # Note that `dig.lab` is defined specifically in this manner so that number above 100 have 1 decimal place and those below have 2.
+    # This is **very** hacky. In conjunction with the `_dummy` and `_impute` columns added later, this is done to avoid joining on floats, which was found to be inconsistent. Alternatively, we could do a non-equi join, but that was found to be inconsistent. Or, as a last ditch effort, an actual binary tree function (which is essentially what numpy's `digitize()` is) could be written.
+    cut(breaks = breaks, dig.lab = 4) %>% 
     str_remove_all(rgx) %>%
     as.numeric()
 }
-bin_x_yards <- partial(.bin, breaks = seq_coord_yards('x', truncate = FALSE), ... = )
-bin_y_yards <- partial(.bin, breaks = seq_coord_yards('y', truncate = FALSE), ... = )
+
+bin_x_yards <- partial(.bin, breaks = seq_coord_yards('x', n = 30, truncate = FALSE), ... = )
+bin_y_yards <- partial(.bin, breaks = seq_coord_yards('y', n = 20, truncate = FALSE), ... = )
 
 grid_xy_yards <-
   crossing(
-    x = seq_coord_yards('x', truncate = TRUE),
-    y = seq_coord_yards('y', truncate = TRUE)
+    x = seq_coord_yards('x', n = 30), # , truncate = TRUE),
+    y = seq_coord_yards('y', n = 20) # , truncate = TRUE)
   ) %>% 
   # arrange(y, x) %>% 
   arrange(x, y) %>% 
@@ -48,8 +55,8 @@ grid_xy_yards
 
 # Make sure this is in columnar order.
 grid_xy_yards %>% 
-  pivot_wider(names_from = x, values_from = idx) %>% 
-  select(-y)
+  mutate(across(c(x, y), round)) %>% 
+  pivot_wider(names_from = x, values_from = idx)
 
 rescale_xy_cols_yards_to_m <- function(.data) {
   .rescale_xy_cols(
@@ -69,22 +76,6 @@ grid_xy_m <- grid_xy_yards %>% rescale_xy_cols_yards_to_m()
 grid_xy_m
 
 # retrieve data ----
-# path_data <- fs::path(.get_dir_data(), 'events_wc2018_clean.rds')
-# if(!fs::file_exists(path_data)) {
-#   comps <- StatsBombR::FreeCompetitions()
-#   
-#   # get all free games data from Men World Cup Rusia 2018 (id = 43)
-#   matches <-
-#     comps %>% 
-#     filter(competition_id == 43) %>%
-#     StatsBombR::FreeMatches() %>%
-#     arrange(match_date)
-#   
-#   events <- matches %>% StatsBombR::StatsBombFreeEvents()
-#   events_clean <- events %>% StatsBombR::allclean()
-#   write_rds(events_clean, 'data/events_wc2018_clean.rds')
-# }
-
 events <- retrieve_sb_events_timed(competition_id = 43, overwrite = FALSE)
 events
 
@@ -106,6 +97,7 @@ players1_py
 
 events_py <- 'data/events_py.csv' %>% read_csv()
 events_filt <- events %>% filter(player.id == .player_id_filt)
+# Just a check to see that coordinates match.
 events_py_filt <- 
   events_py %>% 
   select(id, player_py = player, location_py = location) %>%
@@ -120,21 +112,29 @@ events_py_filt <-
   )
 events_py_filt
 
-# cut(x = 2, breaks = c(0, 4, 8))
-# cut(2, seq_x_yards)
-# ggplot2::cut_width(2, n = 20, width = 4)
-# ggplot2::cut_interval(2, length = 4, n = 3, breaks = c(0, 4, 8))
-# ggplot2::cut_interval(4, length = 4, breaks = c(0, 4, 8))
-
 # r ----
 events_proc <-
   events %>% 
   # head(100) %>% 
   select(player_id = player.id, player_name = player.name, x = location.x, y = location.y) %>% 
+  filter(!is.na(player_id)) %>% 
   filter(!is.na(x))
+
+add_xy_dummy_cols <- function(.data) {
+  .data %>% 
+    mutate(across(c(x, y), list(dummy = ~case_when(.x < 100 ~ round(.x, 2), TRUE ~ round(.x, 1)))))
+}
+
+grid_xy_yards_dummy <-
+  grid_xy_yards %>% 
+  add_xy_dummy_cols() %>% 
+  select(idx, x_impute = x, y_impute = y, x_dummy, y_dummy)
+grid_xy_yards_dummy
 
 grid_xy_yards_expand <-
   grid_xy_yards %>% 
+  add_xy_dummy_cols() %>% 
+  select(idx, x_impute = x, y_impute = y, x_dummy, y_dummy) %>% 
   mutate(dummy = 0) %>% 
   full_join(
     events_proc %>% 
@@ -142,7 +142,11 @@ grid_xy_yards_expand <-
       mutate(dummy = 0)
   ) %>% 
   select(-dummy)
-grid_xy_yards_expand
+# grid_xy_yards_expand %>% filter(y_dummy == 29.5)
+# grid_xy_yards_expand %>% filter(is.na(player_id))
+# grid_xy_yards_expand %>% drop_na()
+# events_proc %>% filter(x >= 120)
+# events_proc %>% filter(y >= 80)
 
 # I have one extra player (compared to the python output)?
 players <-
@@ -157,108 +161,89 @@ players <-
   group_by(player_id, player_name, x, y) %>% 
   summarize(n = n()) %>% 
   ungroup() %>% 
-  right_join(grid_xy_yards_expand) %>% 
-  replace_na(list(n = 0L)) %>% 
+  # filter(n > 0L) %>% 
+  add_xy_dummy_cols() %>% 
+  full_join(grid_xy_yards_expand) %>% 
+  mutate(
+    across(x, ~coalesce(.x, x_impute)),
+    across(y, ~coalesce(.x, y_impute)),
+    across(n, ~coalesce(.x, 0L))
+  ) %>% 
+  select(-matches('(dummy|impute)$')) %>% 
   # Don't convert to meters yet! Compare to python dimensions and counts
   # rescale_xy_cols_yards_to_m() %>% 
   arrange(player_id, idx, x, y)
 players
+players %>% filter(idx %>% is.na()) # Should have no rows.
 
 players1 <- players %>% filter(player_id == .player_id_filt)
 players1
 # players1 %>% filter(n > 1L) %>% summarize(across(n, sum)) # checks out
 players1_py %>% inner_join(grid_xy_yards) %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
 players1 %>% arrange(desc(n)) %>% ggplot() + aes(x, y) + geom_point(aes(size = n))
-
-players %>% filter(player_id == .player_id_filt) %>% arrange(x + y)
-
-players_long_py %>% distinct(id)
-xy_n <- players %>% count(idx, x, y)
-# xy_n
-# grid_xy_yards %>% anti_join(xy_n) %>% count(x)
-# players %>% count(x, y) %>% ggplot() + aes(x = x, y = y) + geom_point(aes(size = n))
-
-players_decomp <-
+decomp <-
   players %>% 
   widyr::widely_svd(
     item = idx,
     feature = player_id,
     value = n,
-    nv = 30
+    nv = 9
   ) %>% 
   inner_join(grid_xy_m)
-players_decomp
-# players_decomp %>% skimr::skim()
-players_decomp %>% filter(dimension == 1L) %>% arrange(desc(value)) %>% ggplot() + aes(x = idx, y = value) + geom_point()
+decomp
 
-# library(sklearn)
+sklearn::import_sklearn()
+library(sklearn)
+decomp <- sk_decomp()
+nmf <- decomp$NMF
+model <- decomp$NMF(n_components = 30L, init = 'random', random_state = 0L)
+model
+players_mat <-
+  players %>% 
+  select(player_id, idx, n) %>% 
+  pivot_wider(names_from = idx, values_from = n) %>% 
+  select(-player_id) %>% 
+  as.matrix()
 
+W <- model$fit_transform(players_mat)
+model$components_ %>% as_tibble()
+W %>% as_tibble()
 
-players_decomp
-players_decomp %>% arrange(desc(x))
+decomp_w <- 
+  model$components_ %>% 
+  as_tibble() %>% 
+  mutate(dimension = row_number()) %>% 
+  pivot_longer(-dimension, names_to = 'idx', values_to = 'value') %>% 
+  mutate(across(idx, ~str_remove(.x, '^V') %>% as.integer())) %>% 
+  inner_join(grid_xy_m) %>% 
+  group_by(dimension) %>% 
+  mutate(frac = (value - min(value)) / (max(value) - min(value))) %>% 
+  ungroup()
+decomp_w
+
 viz <-
-  players_decomp %>% 
+  decomp_w %>% 
   filter(dimension <= 9) %>% 
   ggplot() +
   aes(x = x, y = y) +
-  # theme_void() +
+  theme_void() +
   .gg_pitch() +
-  geom_raster(
-    aes(fill = value),
-    interpolate = TRUE,
-    hjust = 1,
-    vjust = 1,
-    alpha = 0.5
+  # geom_raster(
+  #   aes(fill = frac),
+  #   interpolate = TRUE,
+  #   hjust = 0.5,
+  #   vjust = 0.5,
+  #   alpha = 0.5
+  # ) +
+  geom_contour_filled(
+    # aes(fill = frac),
+    aes(z = sqrt(frac)),
+    alpha = 0.5,
+    # contour_var = 'ndensity',
+    # breaks = seq(0, 1.0, length.out = 11)
+    binwidth = 0.1, bins = 5
   ) +
-  scale_fill_viridis_c(direction = -1) +
-  facet_wrap(~dimension)
+  # geom_tile(aes(fill = frac), alpha = 0.5) +
+  facet_wrap(~dimension, ncol = 3) +
+  scale_fill_viridis_d(direction = 1)
 viz
-
-.pal2 <- c('home' = 'red', 'away' = 'blue')
-.methods_valid <- c('fb', 'spearman', 'vor')
-.pal_yardsethod <- c('fb' = 'magenta', 'spearman' = 'darkorange', 'vor' = 'limegreen')
-.arw <- arrow(length = unit(3, 'pt'), type = 'closed')
-# See https://stackoverflow.com/a/17313561/120898
-.pts <- function(x) {
-  as.numeric(grid::convertUnit(grid::unit(x, 'pt'), 'mm'))
-}
-
-.gg_constants <- function(..., tracking, events) {
-  list(
-    scale_color_yardsanual(values = .pal2),
-    geom_segment(
-      data = tracking %>% filter(!is.na(x)),
-      size = 0.5,
-      arrow = .arw,
-      aes(x = x, y = y, xend = x + x_v, yend = y + y_v, color = side)
-    ),
-    ggrepel::geom_text_repel(
-      data = tracking %>% filter(!is.na(x)),
-      aes(x = x, y = y, color = side, label = player_id),
-      force = 2,
-      size = .pts(8)
-    ),
-    geom_point(
-      data = tracking %>% filter(!is.na(x)),
-      aes(x = x, y = y, color = side),
-      size = 4
-    ),
-    geom_point(
-      data = events,
-      aes(x = start_x, y = start_y),
-      size = 2,
-      fill = 'black',
-      color = 'black',
-      shape = 21
-    ),
-    theme(
-      plot.title = ggtext::element_yardsarkdown('Karla', face = 'bold', size = 18, color = 'gray20', hjust = 0.5),
-      # plot.title.position = 'plot',
-      plot.subtitle = ggtext::element_yardsarkdown('Karla', face = 'bold', size = 14, color = 'gray20', hjust = 0.5),
-      # plot.subtitle = element_text(size = 16, hjust = 0.5),
-      plot.margin = margin(10, 10, 10, 10),
-      plot.caption = ggtext::element_yardsarkdown('Karla', size = 14, color = 'gray20', hjust = 0),
-      plot.caption.position = 'plot'
-    )
-  )
-}
