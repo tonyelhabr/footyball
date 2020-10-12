@@ -1,4 +1,5 @@
 
+library(tidyverse)
 .get_verbose <- function() {
   # getOption('ercot.verbose')
   TRUE
