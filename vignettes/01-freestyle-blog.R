@@ -475,6 +475,3 @@ append_plots <- function(event_id, type = c('pc', 'epv'))  {
 viz_pc_append <- append_plots(event_id = .event_id, type = 'pc')
 viz_epv_append <- append_plots(event_id = .event_id, type = 'epv')
 
-tracking_start %>% 
-  clipr::write_clip()
-knitr::wr

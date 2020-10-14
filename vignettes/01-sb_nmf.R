@@ -181,6 +181,16 @@ W <- model$fit_transform(players_mat)
 # W <- NMF::nmf(NMF::rmatrix(players_mat), rank = 30, seed = 0, method = 'Frobenius', .options='v3')
 # W@fit@H
 
+grid_xy_rev_m <- 
+  grid_xy_yards %>%
+  .rescale_xy_cols(
+    rng_x_from = rng_x_yards,
+    rng_y_from = rng_y_yards,
+    rng_x_to = rng_x_m, 
+    # Need to flip y in order to put the origin on the bottom-left instead of the top-left.
+    rng_y_to = rev(rng_y_m)
+  )
+grid_xy_rev_m
 
 decomp_unsmooth <-
   model$components_ %>%
@@ -192,6 +202,27 @@ decomp_unsmooth <-
   group_by(dimension) %>%
   mutate(frac = (value - min(value)) / (max(value) - min(value))) %>%
   ungroup()
+
+
+decomp_tidy <-
+  model$components_ %>% 
+  as_tibble() %>% 
+  # "Un-tidy" tibble with 30 rows (one for each dimension) and 600 columns (one for every `idx`, of which there are 30 x 20 = 600)
+  mutate(dimension = row_number()) %>% 
+  # Convert to a tidy tibble with dimensions * x * y rows (30 * 30 * 20 = 1800)
+  pivot_longer(-dimension, names_to = 'idx', values_to = 'value') %>% 
+  # The columns from the matrix are named `V1`, `V2`, ... `V600` by default, so convert them to an integer that can be joined on.
+  mutate(across(idx, ~str_remove(.x, '^V') %>% as.integer()))
+
+decomp <-
+  decomp_tidy %>% 
+  # Join on our grid of x-y pairs.
+  inner_join(
+    # Using `dense_rank` because we need indexes here (i.e.. 1, 2, ..., 30 instead of 0, 4.1, 8.2, ..., 120 for `x`).
+    grid_xy_yards %>% 
+      select(idx, x, y) %>% 
+      mutate(across(c(x, y), dense_rank))
+  )
 
 smoothen_component <- function(.data, ...) {
   mat <-
@@ -222,27 +253,6 @@ smoothen_component <- function(.data, ...) {
     ungroup()
   res
 }
-
-decomp_tidy <-
-  model$components_ %>% 
-  as_tibble() %>% 
-  # "Un-tidy" tibble with 30 rows (one for each dimension) and 600 columns (one for every `idx`, of which there are 30 x 20 = 600)
-  mutate(dimension = row_number()) %>% 
-  # Convert to a tidy tibble with dimensions * x * y rows (30 * 30 * 20 = 1800)
-  pivot_longer(-dimension, names_to = 'idx', values_to = 'value') %>% 
-  # The columns from the matrix are named `V1`, `V2`, ... `V600` by default, so convert them to an integer that can be joined on.
-  mutate(across(idx, ~str_remove(.x, '^V') %>% as.integer()))
-
-decomp <-
-  decomp_tidy %>% 
-  # Join on our grid of x-y pairs.
-  inner_join(
-    # Using `dense_rank` because we need indexes here (i.e.. 1, 2, ..., 30 instead of 0, 4.1, 8.2, ..., 120 for `x`).
-    grid_xy_yards %>% 
-      select(idx, x, y) %>% 
-      mutate(across(c(x, y), dense_rank))
-  )
-
 decomp_smooth <-
   decomp %>% 
   # Prep for applying smoothing to each dimension individually.
@@ -252,37 +262,90 @@ decomp_smooth <-
   unnest(data)
 decomp_smooth
 
-grid_xy_rev_m <- 
-  grid_xy_yards %>%
-  .rescale_xy_cols(
-    rng_x_from = rng_x_yards,
-    rng_y_from = rng_y_yards,
-    rng_x_to = rng_x_m, 
-    # Need to flip y in order to put the origin on the bottom-left instead of the top-left.
-    rng_y_to = rev(rng_y_m)
-  )
-grid_xy_rev_m
+plot_dimensions <-
+  function(.data,
+           ...,
+           dir = .get_dir_plots(),
+           suffix = c('smooth', 'unsmooth'),
+           prefix = 'viz_nnmf_dimensions_1to9_r',
+           path = fs::path(dir, sprintf('%s_%s.png', prefix, suffix))) {
+    suffix <- match.arg(suffix)
+    viz <-
+      .data %>%
+      filter(dimension <= 9L) %>%
+      mutate(lab_facet = sprintf('Component %d', dimension)) %>%
+      ggplot() +
+      aes(x = x, y = y) +
+      theme_void() +
+      .gg_pitch() +
+      facet_wrap( ~ lab_facet, ncol = 3) +
+      geom_contour_filled(aes(z = frac), alpha = 0.7) +
+      theme(strip.text = element_text('Arial', size = 8, hjust = 0.05, vjust = 0.01)) +
+      # labs(title = sprintf(
+      #   'First 9 Components, %s',
+      #   ifelse(suffix == 'smooth', 'Smoothed', 'Not Smoothed')
+      # )) +
+      scale_fill_viridis_d(direction = 1)
+    ggsave(
+      plot = viz,
+      filename = path,
+      width = 10,
+      height = 10 * 2 / 3
+    )
+    viz
+  }
 
-plot_dimensions <- function(.data, n, dir = .get_dir_output(), file = 'viz', path = fs::path(dir, sprintf('%s.png', file)) {
-  viz <-
-    .data %>% 
-    filter(dimension <= !!n) %>% 
+viz_smooth <- decomp_smooth %>% plot_dimensions(suffix = 'smooth')
+viz_smooth
+
+viz_unsmooth <- decomp_unsmooth %>% plot_dimensions(suffix = 'unsmooth')
+viz_unsmooth
+
+# header ----
+pts <- function(x) {
+  as.numeric(grid::convertUnit(grid::unit(x, 'pt'), 'mm'))
+}
+
+.generate_and_export_header <- function() {
+  viz <- 
+    tibble(
+      x = c(-2, -1.1, 0, 1.1, 2),
+      lab = c('', 'python', '', 'R', '')
+    ) %>% 
     ggplot() +
-    aes(x = x, y = y) +
-    # theme_void() +
-    .gg_pitch() +
-    facet_wrap(~dimension, ncol = 3) +
-    geom_contour_filled(
-      aes(z = frac),
-      alpha = 0.7
-    ) +
-    scale_fill_viridis_d(direction = 1)
-  ggsave(plot = viz, path = path, width = 10, height = 10 * 2 / 3)
+    aes(x = x, y = 0) +
+    geom_text(aes(label = lab), size = pts(18), fontface = 'bold', hjust = 0.5) +
+    theme_void()
+  ggsave(plot = viz, filename = fs::path(.get_dir_plots(), 'header.png'), height = 0.5, width = 16, type = 'cairo')
   viz
 }
 
-viz <- decomp %>% plot_dimensions()
-viz
+.import_png <- function(lang = c('python', 'r'), dir = .get_dir_plots()) {
+  lang <- match.arg(lang)
+  suffix <- ifelse(lang == 'python', 'py', 'r_smooth')
+  path <- fs::path(dir, sprintf('viz_nnmf_dimensions_1to9_%s.png', suffix))
+  magick::image_read(path)
+}
 
-viz_smooth <- decomp_smooth %>% plot_dimensions()
-viz_smooth
+.import_png_header <- function(dir = .get_dir_plots()) {
+  path <- fs::path(dir, sprintf('header.png'))
+  magick::image_read(path)
+}
+
+.png_scale <- function(img, dpi = 96, width = 8, height = 10, geometry = sprintf('%dx%d', width * dpi, height * dpi)) {
+  magick::image_scale(img, geometry = geometry)
+}
+
+.generate_and_export_header()
+viz_header <- .import_png_header()
+viz_py <- .import_png(lang = 'python')
+viz_r <- .import_png(lang = 'r')
+res <- magick::image_append(c(.png_scale(viz_py), .png_scale(viz_r)))
+# res <- magick::image_append(c(.png_scale(viz_header, height = 0.5, width = 16), res), stack = TRUE)
+img_info <- magick::image_info(res)
+w <- img_info$width
+res <- magick::image_append(c(.png_scale(viz_header, geometry = sprintf('%dx%d', w, w)), res), stack = TRUE)
+path <- fs::path(.get_dir_plots(), 'viz_nnmf_dimensions_1to9_combined.png')
+magick::image_write(res, path = path)
+res
+
